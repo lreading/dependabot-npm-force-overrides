@@ -2,7 +2,9 @@
 
 Updates npm Dependabot PRs that only move transitive dependencies in `package-lock.json` so the PR also records the policy in `package.json` `overrides`.
 
-This is for npm only.
+This is for **npm only**.
+
+You can see an example of the intended workflow [here](https://github.com/lreading/test-dependabot-npm-force-overrides/pull/1).
 
 ## Quickstart
 
@@ -26,12 +28,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - uses: lreading/dependabot-npm-force-overrides@8181327f59b1946543fec22578c527aeb322129e # v0 preview
+      - uses: lreading/dependabot-npm-force-overrides@8181327f59b1946543fec22578c527aeb322129e # v0.0.0
         with:
           github-token: ${{ github.token }}
 ```
 
-_You can use a moving major tag like `@v1` after v1 exists. A commit SHA is more secure._
+_You can use a moving major tag like `@v1` after v1 exists, but a commit SHA is more secure._
 
 ## Configuration
 
@@ -54,15 +56,11 @@ _You can use a moving major tag like `@v1` after v1 exists. A commit SHA is more
 
 The action only changes transitive npm dependency updates. Direct dependency updates are left alone and exit successfully.
 
-When there is nothing to change, the action exits successfully.
-
 When it does change files, it runs npm with lifecycle scripts disabled:
 
 ```sh
 npm install --package-lock-only --ignore-scripts
 ```
-
-It also sets `npm_config_ignore_scripts=true`.
 
 ## Supported
 
