@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  executeCommitMode,
   expectedPackageFiles,
   runNpmPackageLockOnly,
   validateCommitMutationAllowed,
@@ -131,8 +132,244 @@ describe('runNpmPackageLockOnly', () => {
   });
 });
 
+describe('executeCommitMode', () => {
+  it('commits an override for the Dependabot transitive update happy path', async () => {
+    const project = await createTempDirectory();
+    const eventPath = path.join(project, 'event.json');
+    const commands: string[] = [];
+    let packageJsonChanged = false;
+    let lockfileRefreshed = false;
+
+    await writeFile(
+      eventPath,
+      JSON.stringify({
+        pull_request: {
+          user: { login: 'dependabot[bot]' },
+          head: { ref: 'dependabot/npm_and_yarn/semver-7.8.1' },
+          labels: [],
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(project, 'package.json'),
+      JSON.stringify(
+        {
+          name: 'fixture',
+          version: '1.0.0',
+          dependencies: {
+            'npm-package-arg': '12.0.2',
+          },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    await writeFile(path.join(project, 'package-lock.json'), lockfile('7.8.1'), 'utf8');
+
+    const runner: CommandRunner = {
+      execFile(command, args) {
+        commands.push([command, ...args].join(' '));
+
+        if (command === 'npm') {
+          lockfileRefreshed = true;
+          return Promise.resolve({ stdout: '', stderr: '' });
+        }
+
+        if (command !== 'git') {
+          throw new Error(`Unexpected command: ${command}`);
+        }
+
+        if (args.join(' ') === 'status --porcelain') {
+          return Promise.resolve({ stdout: '', stderr: '' });
+        }
+
+        if (args.join(' ') === 'rev-parse HEAD^') {
+          return Promise.resolve({ stdout: 'base\n', stderr: '' });
+        }
+
+        if (args.join(' ') === 'diff --name-only base..HEAD') {
+          return Promise.resolve({ stdout: 'package-lock.json\n', stderr: '' });
+        }
+
+        if (args.join(' ') === 'show base:package-lock.json') {
+          return Promise.resolve({ stdout: lockfile('7.5.1'), stderr: '' });
+        }
+
+        if (args.join(' ') === 'diff --name-only') {
+          packageJsonChanged = true;
+          return Promise.resolve({ stdout: 'package.json\n', stderr: '' });
+        }
+
+        if (args.join(' ') === 'diff --cached --name-only') {
+          return Promise.resolve({
+            stdout: packageJsonChanged ? 'package.json\n' : '',
+            stderr: '',
+          });
+        }
+
+        if (args[0] === 'add' || args.includes('commit')) {
+          return Promise.resolve({ stdout: '', stderr: '' });
+        }
+
+        throw new Error(`Unexpected git args: ${args.join(' ')}`);
+      },
+    };
+
+    const result = await executeCommitMode({
+      config: createDefaultConfig(),
+      cwd: project,
+      env: {
+        GITHUB_ACTOR: 'dependabot[bot]',
+        GITHUB_EVENT_PATH: eventPath,
+      },
+      runner,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toMatchObject({
+        changed: true,
+        committed: true,
+        packageRoots: ['.'],
+      });
+    }
+    await expect(readFile(path.join(project, 'package.json'), 'utf8')).resolves.toContain(
+      '"semver": ">=7.8.1"',
+    );
+    expect(lockfileRefreshed).toBe(true);
+    expect(commands).toContain('git add package.json package-lock.json');
+  });
+
+  it('handles a nested package root without touching root package files', async () => {
+    const project = await createTempDirectory();
+    const packageRoot = path.join(project, 'packages/app');
+    const eventPath = path.join(project, 'event.json');
+
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(
+      eventPath,
+      JSON.stringify({
+        pull_request: {
+          user: { login: 'dependabot[bot]' },
+          head: { ref: 'dependabot/npm_and_yarn/packages/app/semver-7.8.1' },
+          labels: [],
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: 'nested-fixture', version: '1.0.0' }, null, 2),
+      'utf8',
+    );
+    await writeFile(path.join(packageRoot, 'package-lock.json'), lockfile('7.8.1'), 'utf8');
+
+    const runner = createNestedRunner(lockfile('7.5.1'));
+    const result = await executeCommitMode({
+      config: { ...createDefaultConfig(), packageRoots: ['packages/app'] },
+      cwd: project,
+      env: {
+        GITHUB_ACTOR: 'dependabot[bot]',
+        GITHUB_EVENT_PATH: eventPath,
+      },
+      runner,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.packageRoots).toEqual(['packages/app']);
+      expect(result.value.committed).toBe(true);
+    }
+    await expect(readFile(path.join(packageRoot, 'package.json'), 'utf8')).resolves.toContain(
+      '"semver": ">=7.8.1"',
+    );
+    expect(runner.commands).toContain(
+      'git add packages/app/package.json packages/app/package-lock.json',
+    );
+  });
+});
+
 async function createTempDirectory(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'dnfo-'));
   tempDirectories.push(directory);
   return directory;
+}
+
+function createNestedRunner(
+  beforeLockfile: string,
+): CommandRunner & { readonly commands: string[] } {
+  const commands: string[] = [];
+  let packageJsonChanged = false;
+
+  return {
+    commands,
+    execFile(command, args) {
+      commands.push([command, ...args].join(' '));
+
+      if (command === 'npm') {
+        return Promise.resolve({ stdout: '', stderr: '' });
+      }
+
+      if (command !== 'git') {
+        throw new Error(`Unexpected command: ${command}`);
+      }
+
+      if (args.join(' ') === 'status --porcelain') {
+        return Promise.resolve({ stdout: '', stderr: '' });
+      }
+
+      if (args.join(' ') === 'rev-parse HEAD^') {
+        return Promise.resolve({ stdout: 'base\n', stderr: '' });
+      }
+
+      if (args.join(' ') === 'diff --name-only base..HEAD') {
+        return Promise.resolve({ stdout: 'packages/app/package-lock.json\n', stderr: '' });
+      }
+
+      if (args.join(' ') === 'show base:packages/app/package-lock.json') {
+        return Promise.resolve({ stdout: beforeLockfile, stderr: '' });
+      }
+
+      if (args.join(' ') === 'diff --name-only') {
+        packageJsonChanged = true;
+        return Promise.resolve({ stdout: 'packages/app/package.json\n', stderr: '' });
+      }
+
+      if (args.join(' ') === 'diff --cached --name-only') {
+        return Promise.resolve({
+          stdout: packageJsonChanged ? 'packages/app/package.json\n' : '',
+          stderr: '',
+        });
+      }
+
+      if (args[0] === 'add' || args.includes('commit')) {
+        return Promise.resolve({ stdout: '', stderr: '' });
+      }
+
+      throw new Error(`Unexpected git args: ${args.join(' ')}`);
+    },
+  };
+}
+
+function lockfile(semverVersion: string): string {
+  return JSON.stringify(
+    {
+      name: 'fixture',
+      version: '1.0.0',
+      lockfileVersion: 3,
+      packages: {
+        '': {
+          name: 'fixture',
+          version: '1.0.0',
+        },
+        'node_modules/semver': {
+          version: semverVersion,
+        },
+      },
+    },
+    null,
+    2,
+  );
 }

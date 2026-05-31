@@ -1,0 +1,29 @@
+name: Dependabot npm overrides
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  overrides:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: lreading/dependabot-npm-force-overrides@v0.0.0
+        id: overrides
+        with:
+          mode: commit
+          package-roots: .
+
+      - name: Push override commit
+        if: steps.overrides.outputs.committed == 'true'
+        run: git push origin HEAD:${{ github.event.pull_request.head.ref }}
