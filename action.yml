@@ -1,0 +1,59 @@
+name: Dependabot npm force overrides
+description: Ensure npm transitive Dependabot updates are represented as package.json overrides.
+author: dependabot-npm-force-overrides contributors
+inputs:
+  github-token:
+    description: GitHub token used by future comment and commit modes.
+    required: false
+    default: ${{ github.token }}
+  package-roots:
+    description: Newline-separated npm package roots to inspect. Defaults to safe auto-detection.
+    required: false
+  mode:
+    description: Operation mode. Supported values are check, comment, and commit.
+    required: false
+    default: check
+  dry-run:
+    description: Report required changes without writing files.
+    required: false
+    default: 'false'
+  allowed-bot-logins:
+    description: Comma or newline separated bot logins allowed to trigger mutation.
+    required: false
+    default: 'dependabot[bot]'
+  override-strategy:
+    description: Override style to write. Only minimum is currently supported.
+    required: false
+    default: minimum
+  security-only:
+    description: Only act on security update PRs once PR metadata wiring exists.
+    required: false
+    default: 'false'
+  fail-on-direct-lockfile-only:
+    description: Fail when direct dependency updates appear to be lockfile-only.
+    required: false
+    default: 'true'
+  skip-label:
+    description: PR label that will cause the action to no-op once PR metadata wiring exists.
+    required: false
+outputs:
+  changed:
+    description: Whether the action changed any files.
+  mode:
+    description: Effective action mode.
+  dry-run:
+    description: Whether dry-run mode is enabled.
+  would-write:
+    description: Whether this mode may write files when implementation wiring is complete.
+  would-comment:
+    description: Whether this mode may comment when implementation wiring is complete.
+  would-commit:
+    description: Whether this mode may commit when implementation wiring is complete.
+  committed:
+    description: Whether commit mode created a local commit.
+runs:
+  using: node24
+  main: dist/index.js
+branding:
+  icon: shield
+  color: blue
