@@ -23,6 +23,7 @@ jobs:
         with:
           mode: commit
           package-roots: .
+          fail-on-direct-lockfile-only: 'false'
 
       - name: Push override commit
         if: steps.overrides.outputs.committed == 'true'
