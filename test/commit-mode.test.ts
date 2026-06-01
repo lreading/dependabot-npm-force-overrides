@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  createNpmLockfileEnv,
   executeCommitMode,
   expectedPackageFiles,
   runNpmPackageLockOnly,
@@ -103,6 +104,25 @@ describe('runNpmPackageLockOnly', () => {
       args: ['install', '--package-lock-only', '--ignore-scripts'],
     });
     expect(calls[0]?.env?.npm_config_ignore_scripts).toBe('true');
+  });
+
+  it('does not pass the GitHub push token to npm subprocesses', () => {
+    const env = createNpmLockfileEnv({
+      GITHUB_TOKEN: 'github-token',
+      GH_TOKEN: 'gh-token',
+      'INPUT_GITHUB-TOKEN': 'input-token',
+      INPUT_GITHUB_TOKEN: 'normalized-input-token',
+      NODE_AUTH_TOKEN: 'registry-token',
+      PATH: '/usr/bin',
+    });
+
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+    expect(env.GH_TOKEN).toBeUndefined();
+    expect(env['INPUT_GITHUB-TOKEN']).toBeUndefined();
+    expect(env.INPUT_GITHUB_TOKEN).toBeUndefined();
+    expect(env.NODE_AUTH_TOKEN).toBe('registry-token');
+    expect(env.PATH).toBe('/usr/bin');
+    expect(env.npm_config_ignore_scripts).toBe('true');
   });
 
   it('does not execute lifecycle scripts during a real npm lockfile refresh', async () => {

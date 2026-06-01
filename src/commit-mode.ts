@@ -170,7 +170,11 @@ export async function executeCommitMode(
 
   for (const packageRoot of rootsToRefresh) {
     logger.info(`Refreshing npm lockfile in ${packageRoot}`);
-    await runNpmPackageLockOnly(path.join(cwd, packageRoot === '.' ? '' : packageRoot), runner);
+    await runNpmPackageLockOnly(
+      path.join(cwd, packageRoot === '.' ? '' : packageRoot),
+      runner,
+      env,
+    );
   }
 
   const expected = new Set(expectedFiles);
@@ -221,14 +225,27 @@ export async function executeCommitMode(
 export async function runNpmPackageLockOnly(
   packageRootPath: string,
   runner: CommandRunner = defaultCommandRunner,
+  baseEnv: NodeJS.ProcessEnv = process.env,
 ): Promise<CommandResult> {
   return runner.execFile('npm', ['install', '--package-lock-only', '--ignore-scripts'], {
     cwd: packageRootPath,
-    env: {
-      ...process.env,
-      npm_config_ignore_scripts: 'true',
-    },
+    env: createNpmLockfileEnv(baseEnv),
   });
+}
+
+export function createNpmLockfileEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+
+  for (const [name, value] of Object.entries(baseEnv)) {
+    if (value === undefined || isGitHubPushTokenEnv(name)) {
+      continue;
+    }
+
+    env[name] = value;
+  }
+
+  env.npm_config_ignore_scripts = 'true';
+  return env;
 }
 
 export function validateCommitMutationAllowed(
@@ -421,6 +438,15 @@ function splitLines(value: string): readonly string[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line !== '');
+}
+
+function isGitHubPushTokenEnv(name: string): boolean {
+  return (
+    name === 'GITHUB_TOKEN' ||
+    name === 'GH_TOKEN' ||
+    name === 'INPUT_GITHUB-TOKEN' ||
+    name === 'INPUT_GITHUB_TOKEN'
+  );
 }
 
 function isPullRequestEvent(value: unknown): value is PullRequestEvent & {
