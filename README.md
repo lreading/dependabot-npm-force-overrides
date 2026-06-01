@@ -14,21 +14,24 @@ You can see an example of the intended workflow [here](https://github.com/lreadi
 name: Dependabot npm overrides
 
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   overrides:
-    if: github.actor == 'dependabot[bot]'
+    if: >-
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.repository == github.event.pull_request.head.repo.full_name
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: lreading/dependabot-npm-force-overrides@9565f45fa8f140a7d52ce1c34af0c71adfec0ee2 # v1.0.0
         with:
@@ -36,6 +39,21 @@ jobs:
 ```
 
 _You can use `@v1`, but pinning a commit SHA is more secure._
+
+Do not run this action from `pull_request_target`. The action must check out and inspect the pull
+request branch, and
+[GitHub documents `pull_request_target`](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request_target)
+plus untrusted pull request checkout as a privileged workflow pattern that can expose write tokens
+or secrets. CodeQL reports the same issue as
+[checkout of untrusted code in a privileged context](https://codeql.github.com/codeql-query-help/actions/actions-untrusted-checkout-critical/).
+
+Use `pull_request` instead. Dependabot-triggered `pull_request` workflows receive a read-only
+`GITHUB_TOKEN` by default, but
+[GitHub's Dependabot Actions troubleshooting documentation](https://docs.github.com/en/code-security/dependabot/troubleshooting-dependabot/troubleshooting-dependabot-on-github-actions#changing-github_token-permissions)
+says the workflow `permissions` key can increase the token scope for these runs. This action needs
+`contents: write` so it can push the generated override commit back to the Dependabot branch. If your
+repository or organization policy prevents that token from writing, run the action with
+`dry-run: true` or provide a separate least-privilege GitHub App token.
 
 ## Configuration
 
