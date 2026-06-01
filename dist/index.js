@@ -23485,7 +23485,11 @@ async function executeCommitMode(options) {
   }
   for (const packageRoot of rootsToRefresh) {
     logger.info(`Refreshing npm lockfile in ${packageRoot}`);
-    await runNpmPackageLockOnly(path7.join(cwd, packageRoot === "." ? "" : packageRoot), runner);
+    await runNpmPackageLockOnly(
+      path7.join(cwd, packageRoot === "." ? "" : packageRoot),
+      runner,
+      env
+    );
   }
   const expected = new Set(expectedFiles);
   const actualChangedFiles = await getWorkingTreeChangedFiles(runner, cwd);
@@ -23528,14 +23532,22 @@ async function executeCommitMode(options) {
     }
   };
 }
-async function runNpmPackageLockOnly(packageRootPath, runner = defaultCommandRunner) {
+async function runNpmPackageLockOnly(packageRootPath, runner = defaultCommandRunner, baseEnv = process.env) {
   return runner.execFile("npm", ["install", "--package-lock-only", "--ignore-scripts"], {
     cwd: packageRootPath,
-    env: {
-      ...process.env,
-      npm_config_ignore_scripts: "true"
-    }
+    env: createNpmLockfileEnv(baseEnv)
   });
+}
+function createNpmLockfileEnv(baseEnv) {
+  const env = {};
+  for (const [name, value] of Object.entries(baseEnv)) {
+    if (value === void 0 || isGitHubPushTokenEnv(name)) {
+      continue;
+    }
+    env[name] = value;
+  }
+  env.npm_config_ignore_scripts = "true";
+  return env;
 }
 function validateCommitMutationAllowed(config, context) {
   if (config.skipLabel !== void 0 && context.labels.includes(config.skipLabel)) {
@@ -23670,6 +23682,9 @@ function joinRepoPath(packageRoot, filename) {
 }
 function splitLines(value) {
   return value.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
+}
+function isGitHubPushTokenEnv(name) {
+  return name === "GITHUB_TOKEN" || name === "GH_TOKEN" || name === "INPUT_GITHUB-TOKEN" || name === "INPUT_GITHUB_TOKEN";
 }
 function isPullRequestEvent(value) {
   return typeof value === "object" && value !== null && "pull_request" in value && typeof value.pull_request === "object" && value.pull_request !== null;
