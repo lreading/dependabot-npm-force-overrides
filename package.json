@@ -30,5 +30,25 @@
   },
   "engines": {
     "node": ">=24"
+  },
+  "overrides": {
+    "@typescript-eslint/eslint-plugin": ">=8.60.1",
+    "@typescript-eslint/parser": ">=8.60.1",
+    "@typescript-eslint/project-service": ">=8.60.1",
+    "@typescript-eslint/scope-manager": ">=8.60.1",
+    "@typescript-eslint/tsconfig-utils": ">=8.60.1",
+    "@typescript-eslint/type-utils": ">=8.60.1",
+    "@typescript-eslint/types": ">=8.60.1",
+    "@typescript-eslint/typescript-estree": ">=8.60.1",
+    "@typescript-eslint/utils": ">=8.60.1",
+    "@typescript-eslint/visitor-keys": ">=8.60.1",
+    "@vitest/expect": ">=3.2.6",
+    "@vitest/mocker": ">=3.2.6",
+    "@vitest/pretty-format": ">=3.2.6",
+    "@vitest/runner": ">=3.2.6",
+    "@vitest/snapshot": ">=3.2.6",
+    "@vitest/spy": ">=3.2.6",
+    "@vitest/utils": ">=3.2.6",
+    "undici-types": ">=7.18.2"
   }
 }
