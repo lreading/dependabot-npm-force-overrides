@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: lreading/dependabot-npm-force-overrides@8181327f59b1946543fec22578c527aeb322129e
+      - uses: lreading/dependabot-npm-force-overrides@12d5243d03ef6569005beab9c9edd9629e3fbb11
         id: overrides
         with:
           github-token: ${{ github.token }}
