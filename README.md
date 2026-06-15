@@ -55,14 +55,59 @@ says the workflow `permissions` key can increase the token scope for these runs.
 repository or organization policy prevents that token from writing, run the action with
 `dry-run: true` or provide a separate least-privilege GitHub App token.
 
+### Signed Commits
+
+By default, the generated override commit is unsigned. If a repository requires signed commits,
+configure Git signing before this action runs and set `sign-commit: true`. This makes the action call
+`git commit -S`, which
+[GitHub documents for local signed commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
+GitHub supports local commit verification with GPG, SSH, or S/MIME; for SSH signing,
+[GitHub documents](https://docs.github.com/en/authentication/managing-commit-signature-verification/telling-git-about-your-signing-key#telling-git-about-your-ssh-key)
+`gpg.format ssh` and `user.signingkey`.
+
+For Dependabot-triggered workflows, store signing secrets as Dependabot secrets, not Actions
+secrets. GitHub documents that Dependabot-triggered workflows do not receive Actions secrets and
+must use
+[Dependabot secrets](https://docs.github.com/en/code-security/reference/supply-chain-security/troubleshoot-dependabot/dependabot-on-actions#accessing-secrets).
+
+Example SSH signing setup:
+
+```yaml
+- name: Configure commit signing
+  env:
+    SSH_SIGNING_KEY: ${{ secrets.DEPENDABOT_OVERRIDES_SSH_SIGNING_KEY }}
+  run: |
+    set -euo pipefail
+    install -m 700 -d ~/.ssh
+    printf '%s\n' "$SSH_SIGNING_KEY" > ~/.ssh/override_signing_key
+    chmod 600 ~/.ssh/override_signing_key
+    ssh-keygen -y -f ~/.ssh/override_signing_key > ~/.ssh/override_signing_key.pub
+    git config --global gpg.format ssh
+    git config --global user.signingkey ~/.ssh/override_signing_key.pub
+
+- uses: lreading/dependabot-npm-force-overrides@a1c38a755edfdbaf02080e62069ba188773bd5bd # v1.0.1
+  with:
+    github-token: ${{ github.token }}
+    sign-commit: true
+    commit-user-name: dependabot-overrides[bot]
+    commit-user-email: dependabot-overrides[bot]@users.noreply.github.com
+```
+
+Use a committer identity that matches the signing setup. For GPG signatures, GitHub checks that the
+committer email matches an email identity on the GPG key and that the email is verified on the
+[signer's account](https://docs.github.com/en/authentication/troubleshooting-commit-signature-verification/using-a-verified-email-address-in-your-gpg-key).
+
 ## Configuration
 
-| Input           | Required | Default               | Description                                                                                                           |
-| --------------- | -------- | --------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `github-token`  | yes      | `${{ github.token }}` | Token used to push the override commit. Needs `contents: write`.                                                      |
-| `package-roots` | no       | auto-detect           | Newline or comma separated npm package roots to inspect. If set, only these roots are checked. Example: `app1, app3`. |
-| `dry-run`       | no       | `false`               | Report what would happen without writing, committing, or pushing.                                                     |
-| `skip-label`    | no       | unset                 | PR label that makes the action exit without changes.                                                                  |
+| Input               | Required | Default                                                   | Description                                                                                                           |
+| ------------------- | -------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `github-token`      | yes      | `${{ github.token }}`                                     | Token used to push the override commit. Needs `contents: write`.                                                      |
+| `package-roots`     | no       | auto-detect                                               | Newline or comma separated npm package roots to inspect. If set, only these roots are checked. Example: `app1, app3`. |
+| `dry-run`           | no       | `false`                                                   | Report what would happen without writing, committing, or pushing.                                                     |
+| `skip-label`        | no       | unset                                                     | PR label that makes the action exit without changes.                                                                  |
+| `commit-user-name`  | no       | `dependabot-npm-force-overrides`                          | Git `user.name` value for the generated override commit.                                                              |
+| `commit-user-email` | no       | `dependabot-npm-force-overrides@users.noreply.github.com` | Git `user.email` value for the generated override commit.                                                             |
+| `sign-commit`       | no       | `false`                                                   | Sign the generated override commit with `git commit -S`. The workflow must configure Git signing first.               |
 
 ## Outputs
 

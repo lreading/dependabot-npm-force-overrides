@@ -199,15 +199,7 @@ export async function executeCommitMode(
     };
   }
 
-  await git(runner, cwd, [
-    '-c',
-    'user.name=dependabot-npm-force-overrides',
-    '-c',
-    'user.email=dependabot-npm-force-overrides@users.noreply.github.com',
-    'commit',
-    '-m',
-    'Apply npm overrides for Dependabot transitive updates',
-  ]);
+  await git(runner, cwd, createCommitArgs(options.config));
   await pushCommit(runner, cwd, options.config, context.value, env);
 
   return {
@@ -279,6 +271,23 @@ export function expectedPackageFiles(packageRoots: readonly string[]): readonly 
     joinRepoPath(packageRoot, 'package.json'),
     joinRepoPath(packageRoot, 'package-lock.json'),
   ]);
+}
+
+function createCommitArgs(config: ActionConfig): readonly string[] {
+  const args = [
+    '-c',
+    `user.name=${config.commitUserName}`,
+    '-c',
+    `user.email=${config.commitUserEmail}`,
+    'commit',
+  ];
+
+  if (config.signCommit) {
+    args.push('-S');
+  }
+
+  args.push('-m', 'Apply npm overrides for Dependabot transitive updates');
+  return args;
 }
 
 async function readPullRequestContext(env: NodeJS.ProcessEnv): Promise<Result<PullRequestContext>> {

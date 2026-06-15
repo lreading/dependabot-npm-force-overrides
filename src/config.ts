@@ -3,6 +3,9 @@ export type ActionConfig = {
   readonly dryRun: boolean;
   readonly packageRoots: readonly string[];
   readonly skipLabel?: string;
+  readonly commitUserName: string;
+  readonly commitUserEmail: string;
+  readonly signCommit: boolean;
 };
 
 export type InputReader = {
@@ -15,6 +18,9 @@ export function createDefaultConfig(): ActionConfig {
     githubToken: '',
     dryRun: false,
     packageRoots: [],
+    commitUserName: 'dependabot-npm-force-overrides',
+    commitUserEmail: 'dependabot-npm-force-overrides@users.noreply.github.com',
+    signCommit: false,
   };
 }
 
@@ -23,12 +29,17 @@ export function parseActionConfig(inputs: InputReader): ActionConfig {
   const githubTokenInput = readOptionalInput(inputs, 'github-token');
   const githubToken = githubTokenInput === '' ? (process.env.GITHUB_TOKEN ?? '') : githubTokenInput;
   const skipLabel = readOptionalInput(inputs, 'skip-label');
+  const commitUserName = readOptionalInput(inputs, 'commit-user-name');
+  const commitUserEmail = readOptionalInput(inputs, 'commit-user-email');
 
   return {
     githubToken,
     dryRun: readBooleanInput(inputs, 'dry-run', defaults.dryRun),
     packageRoots: parseListInput(readOptionalInput(inputs, 'package-roots')) ?? [],
     ...(skipLabel === '' ? {} : { skipLabel }),
+    commitUserName: commitUserName === '' ? defaults.commitUserName : commitUserName,
+    commitUserEmail: commitUserEmail === '' ? defaults.commitUserEmail : commitUserEmail,
+    signCommit: readBooleanInput(inputs, 'sign-commit', defaults.signCommit),
   };
 }
 

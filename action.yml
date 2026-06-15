@@ -16,6 +16,18 @@ inputs:
   skip-label:
     description: PR label that causes the action to no-op.
     required: false
+  commit-user-name:
+    description: Git user.name value for the generated override commit.
+    required: false
+    default: dependabot-npm-force-overrides
+  commit-user-email:
+    description: Git user.email value for the generated override commit.
+    required: false
+    default: dependabot-npm-force-overrides@users.noreply.github.com
+  sign-commit:
+    description: Sign the generated override commit with git commit -S. The workflow must configure Git signing before this action runs.
+    required: false
+    default: 'false'
 outputs:
   changed:
     description: Whether package.json overrides needed changes.

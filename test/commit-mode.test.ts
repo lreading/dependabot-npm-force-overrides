@@ -272,9 +272,56 @@ describe('executeCommitMode', () => {
     expect(lockfileRefreshed).toBe(true);
     expect(commands).toContain('git add package.json package-lock.json');
     expect(commands).toContain(
+      'git -c user.name=dependabot-npm-force-overrides -c user.email=dependabot-npm-force-overrides@users.noreply.github.com commit -m Apply npm overrides for Dependabot transitive updates',
+    );
+    expect(commands).toContain(
       'git remote set-url origin https://x-access-token:token-value@github.com/lreading/test-dependabot-npm-force-overrides.git',
     );
     expect(commands).toContain('git push origin HEAD:dependabot/npm_and_yarn/semver-7.8.1');
+  });
+
+  it('uses configured signed commit options', async () => {
+    const project = await createTempDirectory();
+    const eventPath = path.join(project, 'event.json');
+
+    await writeFile(
+      eventPath,
+      JSON.stringify({
+        pull_request: {
+          user: { login: 'dependabot[bot]' },
+          head: { ref: 'dependabot/npm_and_yarn/semver-7.8.1' },
+          labels: [],
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(project, 'package.json'),
+      JSON.stringify({ name: 'fixture', version: '1.0.0' }, null, 2),
+      'utf8',
+    );
+    await writeFile(path.join(project, 'package-lock.json'), lockfile('7.8.1'), 'utf8');
+
+    const runner = createRootRunner(lockfile('7.5.1'));
+    const result = await executeCommitMode({
+      config: {
+        ...createDefaultConfig(),
+        commitUserName: 'dependabot-overrides[bot]',
+        commitUserEmail: 'dependabot-overrides[bot]@users.noreply.github.com',
+        signCommit: true,
+      },
+      cwd: project,
+      env: {
+        GITHUB_ACTOR: 'dependabot[bot]',
+        GITHUB_EVENT_PATH: eventPath,
+      },
+      runner,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(runner.commands).toContain(
+      'git -c user.name=dependabot-overrides[bot] -c user.email=dependabot-overrides[bot]@users.noreply.github.com commit -S -m Apply npm overrides for Dependabot transitive updates',
+    );
   });
 
   it('handles a nested package root without touching root package files', async () => {
@@ -331,6 +378,60 @@ async function createTempDirectory(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'dnfo-'));
   tempDirectories.push(directory);
   return directory;
+}
+
+function createRootRunner(beforeLockfile: string): CommandRunner & { readonly commands: string[] } {
+  const commands: string[] = [];
+  let packageJsonChanged = false;
+
+  return {
+    commands,
+    execFile(command, args) {
+      commands.push([command, ...args].join(' '));
+
+      if (command === 'npm') {
+        return Promise.resolve({ stdout: '', stderr: '' });
+      }
+
+      if (command !== 'git') {
+        throw new Error(`Unexpected command: ${command}`);
+      }
+
+      if (args.join(' ') === 'status --porcelain') {
+        return Promise.resolve({ stdout: '', stderr: '' });
+      }
+
+      if (args.join(' ') === 'rev-parse HEAD^') {
+        return Promise.resolve({ stdout: 'base\n', stderr: '' });
+      }
+
+      if (args.join(' ') === 'diff --name-only base..HEAD') {
+        return Promise.resolve({ stdout: 'package-lock.json\n', stderr: '' });
+      }
+
+      if (args.join(' ') === 'show base:package-lock.json') {
+        return Promise.resolve({ stdout: beforeLockfile, stderr: '' });
+      }
+
+      if (args.join(' ') === 'diff --name-only') {
+        packageJsonChanged = true;
+        return Promise.resolve({ stdout: 'package.json\n', stderr: '' });
+      }
+
+      if (args.join(' ') === 'diff --cached --name-only') {
+        return Promise.resolve({
+          stdout: packageJsonChanged ? 'package.json\n' : '',
+          stderr: '',
+        });
+      }
+
+      if (args[0] === 'add' || args.includes('commit') || args[0] === 'push') {
+        return Promise.resolve({ stdout: '', stderr: '' });
+      }
+
+      throw new Error(`Unexpected git args: ${args.join(' ')}`);
+    },
+  };
 }
 
 function createNestedRunner(

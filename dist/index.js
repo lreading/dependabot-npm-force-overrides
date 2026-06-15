@@ -23532,15 +23532,7 @@ async function executeCommitMode(options) {
       }
     };
   }
-  await git(runner, cwd, [
-    "-c",
-    "user.name=dependabot-npm-force-overrides",
-    "-c",
-    "user.email=dependabot-npm-force-overrides@users.noreply.github.com",
-    "commit",
-    "-m",
-    "Apply npm overrides for Dependabot transitive updates"
-  ]);
+  await git(runner, cwd, createCommitArgs(options.config));
   await pushCommit(runner, cwd, options.config, context.value, env);
   return {
     ok: true,
@@ -23593,6 +23585,20 @@ function expectedPackageFiles(packageRoots) {
     joinRepoPath(packageRoot, "package.json"),
     joinRepoPath(packageRoot, "package-lock.json")
   ]);
+}
+function createCommitArgs(config) {
+  const args = [
+    "-c",
+    `user.name=${config.commitUserName}`,
+    "-c",
+    `user.email=${config.commitUserEmail}`,
+    "commit"
+  ];
+  if (config.signCommit) {
+    args.push("-S");
+  }
+  args.push("-m", "Apply npm overrides for Dependabot transitive updates");
+  return args;
 }
 async function readPullRequestContext(env) {
   const eventPath = env.GITHUB_EVENT_PATH;
@@ -23734,7 +23740,10 @@ function createDefaultConfig() {
   return {
     githubToken: "",
     dryRun: false,
-    packageRoots: []
+    packageRoots: [],
+    commitUserName: "dependabot-npm-force-overrides",
+    commitUserEmail: "dependabot-npm-force-overrides@users.noreply.github.com",
+    signCommit: false
   };
 }
 function parseActionConfig(inputs) {
@@ -23742,11 +23751,16 @@ function parseActionConfig(inputs) {
   const githubTokenInput = readOptionalInput(inputs, "github-token");
   const githubToken = githubTokenInput === "" ? process.env.GITHUB_TOKEN ?? "" : githubTokenInput;
   const skipLabel = readOptionalInput(inputs, "skip-label");
+  const commitUserName = readOptionalInput(inputs, "commit-user-name");
+  const commitUserEmail = readOptionalInput(inputs, "commit-user-email");
   return {
     githubToken,
     dryRun: readBooleanInput(inputs, "dry-run", defaults.dryRun),
     packageRoots: parseListInput(readOptionalInput(inputs, "package-roots")) ?? [],
-    ...skipLabel === "" ? {} : { skipLabel }
+    ...skipLabel === "" ? {} : { skipLabel },
+    commitUserName: commitUserName === "" ? defaults.commitUserName : commitUserName,
+    commitUserEmail: commitUserEmail === "" ? defaults.commitUserEmail : commitUserEmail,
+    signCommit: readBooleanInput(inputs, "sign-commit", defaults.signCommit)
   };
 }
 function readOptionalInput(inputs, name) {

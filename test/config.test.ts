@@ -10,6 +10,9 @@ describe('parseActionConfig', () => {
       githubToken: 'token-value',
       dryRun: false,
       packageRoots: [],
+      commitUserName: 'dependabot-npm-force-overrides',
+      commitUserEmail: 'dependabot-npm-force-overrides@users.noreply.github.com',
+      signCommit: false,
     });
   });
 
@@ -20,6 +23,9 @@ describe('parseActionConfig', () => {
         'dry-run': 'true',
         'package-roots': '.\npackages/api, apps/web',
         'skip-label': 'skip-overrides',
+        'commit-user-name': 'dependabot-overrides[bot]',
+        'commit-user-email': 'dependabot-overrides[bot]@users.noreply.github.com',
+        'sign-commit': 'true',
       }),
     );
 
@@ -28,6 +34,9 @@ describe('parseActionConfig', () => {
       dryRun: true,
       packageRoots: ['.', 'packages/api', 'apps/web'],
       skipLabel: 'skip-overrides',
+      commitUserName: 'dependabot-overrides[bot]',
+      commitUserEmail: 'dependabot-overrides[bot]@users.noreply.github.com',
+      signCommit: true,
     });
   });
 });
