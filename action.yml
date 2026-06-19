@@ -25,9 +25,12 @@ inputs:
     required: false
     default: dependabot-npm-force-overrides@users.noreply.github.com
   sign-commit:
-    description: Sign the generated override commit with git commit -S. The workflow must configure Git signing before this action runs.
+    description: Sign the generated override commit with git commit -S. Requires ssh-signing-key.
     required: false
     default: 'false'
+  ssh-signing-key:
+    description: Private SSH key used to sign the generated override commit when sign-commit is true.
+    required: false
 outputs:
   changed:
     description: Whether package.json overrides needed changes.

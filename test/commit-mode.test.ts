@@ -106,12 +106,14 @@ describe('runNpmPackageLockOnly', () => {
     expect(calls[0]?.env?.npm_config_ignore_scripts).toBe('true');
   });
 
-  it('does not pass the GitHub push token to npm subprocesses', () => {
+  it('does not pass push or signing secrets to npm subprocesses', () => {
     const env = createNpmLockfileEnv({
       GITHUB_TOKEN: 'github-token',
       GH_TOKEN: 'gh-token',
       'INPUT_GITHUB-TOKEN': 'input-token',
       INPUT_GITHUB_TOKEN: 'normalized-input-token',
+      'INPUT_SSH-SIGNING-KEY': 'signing-key-input',
+      INPUT_SSH_SIGNING_KEY: 'normalized-signing-key-input',
       NODE_AUTH_TOKEN: 'registry-token',
       PATH: '/usr/bin',
     });
@@ -120,6 +122,8 @@ describe('runNpmPackageLockOnly', () => {
     expect(env.GH_TOKEN).toBeUndefined();
     expect(env['INPUT_GITHUB-TOKEN']).toBeUndefined();
     expect(env.INPUT_GITHUB_TOKEN).toBeUndefined();
+    expect(env['INPUT_SSH-SIGNING-KEY']).toBeUndefined();
+    expect(env.INPUT_SSH_SIGNING_KEY).toBeUndefined();
     expect(env.NODE_AUTH_TOKEN).toBe('registry-token');
     expect(env.PATH).toBe('/usr/bin');
     expect(env.npm_config_ignore_scripts).toBe('true');
@@ -309,6 +313,7 @@ describe('executeCommitMode', () => {
         commitUserName: 'dependabot-overrides[bot]',
         commitUserEmail: 'dependabot-overrides[bot]@users.noreply.github.com',
         signCommit: true,
+        sshSigningKey: 'private-key-value',
       },
       cwd: project,
       env: {
@@ -319,9 +324,57 @@ describe('executeCommitMode', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(runner.commands).toContain(
-      'git -c user.name=dependabot-overrides[bot] -c user.email=dependabot-overrides[bot]@users.noreply.github.com commit -S -m Apply npm overrides for Dependabot transitive updates',
+    expect(runner.commands).toContain('ssh-keygen -y -f <temp-signing-key>');
+    expect(
+      runner.commands.some((command) =>
+        /^git -c user\.name=dependabot-overrides\[bot\] -c user\.email=dependabot-overrides\[bot\]@users\.noreply\.github\.com -c gpg\.format=ssh -c user\.signingkey=.*signing_key\.pub commit -S -m Apply npm overrides for Dependabot transitive updates$/.test(
+          command,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('fails clearly when signed commits are requested without a signing key', async () => {
+    const project = await createTempDirectory();
+    const eventPath = path.join(project, 'event.json');
+
+    await writeFile(
+      eventPath,
+      JSON.stringify({
+        pull_request: {
+          user: { login: 'dependabot[bot]' },
+          head: { ref: 'dependabot/npm_and_yarn/semver-7.8.1' },
+          labels: [],
+        },
+      }),
+      'utf8',
     );
+    await writeFile(
+      path.join(project, 'package.json'),
+      JSON.stringify({ name: 'fixture', version: '1.0.0' }, null, 2),
+      'utf8',
+    );
+    await writeFile(path.join(project, 'package-lock.json'), lockfile('7.8.1'), 'utf8');
+
+    const runner = createRootRunner(lockfile('7.5.1'));
+    const result = await executeCommitMode({
+      config: {
+        ...createDefaultConfig(),
+        signCommit: true,
+      },
+      cwd: project,
+      env: {
+        GITHUB_ACTOR: 'dependabot[bot]',
+        GITHUB_EVENT_PATH: eventPath,
+      },
+      runner,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain('sign-commit is true, but ssh-signing-key is empty');
+    }
+    expect(runner.commands.some((command) => command.includes(' commit '))).toBe(false);
   });
 
   it('handles a nested package root without touching root package files', async () => {
@@ -387,10 +440,14 @@ function createRootRunner(beforeLockfile: string): CommandRunner & { readonly co
   return {
     commands,
     execFile(command, args) {
-      commands.push([command, ...args].join(' '));
+      commands.push(formatCommand(command, args));
 
       if (command === 'npm') {
         return Promise.resolve({ stdout: '', stderr: '' });
+      }
+
+      if (command === 'ssh-keygen') {
+        return Promise.resolve({ stdout: 'ssh-ed25519 public-key-value\n', stderr: '' });
       }
 
       if (command !== 'git') {
@@ -432,6 +489,17 @@ function createRootRunner(beforeLockfile: string): CommandRunner & { readonly co
       throw new Error(`Unexpected git args: ${args.join(' ')}`);
     },
   };
+}
+
+function formatCommand(command: string, args: readonly string[]): string {
+  if (command === 'ssh-keygen') {
+    return [
+      command,
+      ...args.map((arg) => (arg.endsWith('/signing_key') ? '<temp-signing-key>' : arg)),
+    ].join(' ');
+  }
+
+  return [command, ...args].join(' ');
 }
 
 function createNestedRunner(

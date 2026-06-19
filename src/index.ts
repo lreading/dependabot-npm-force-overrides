@@ -17,6 +17,10 @@ export async function run(): Promise<void> {
     core.info(`Skip label: ${config.skipLabel}`);
   }
 
+  if (config.sshSigningKey !== '') {
+    core.setSecret(config.sshSigningKey);
+  }
+
   core.setOutput('changed', 'false');
   core.setOutput('committed', 'false');
   core.setOutput('pushed', 'false');

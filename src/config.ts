@@ -6,6 +6,7 @@ export type ActionConfig = {
   readonly commitUserName: string;
   readonly commitUserEmail: string;
   readonly signCommit: boolean;
+  readonly sshSigningKey: string;
 };
 
 export type InputReader = {
@@ -21,6 +22,7 @@ export function createDefaultConfig(): ActionConfig {
     commitUserName: 'dependabot-npm-force-overrides',
     commitUserEmail: 'dependabot-npm-force-overrides@users.noreply.github.com',
     signCommit: false,
+    sshSigningKey: '',
   };
 }
 
@@ -40,6 +42,7 @@ export function parseActionConfig(inputs: InputReader): ActionConfig {
     commitUserName: commitUserName === '' ? defaults.commitUserName : commitUserName,
     commitUserEmail: commitUserEmail === '' ? defaults.commitUserEmail : commitUserEmail,
     signCommit: readBooleanInput(inputs, 'sign-commit', defaults.signCommit),
+    sshSigningKey: readOptionalInput(inputs, 'ssh-signing-key'),
   };
 }
 
