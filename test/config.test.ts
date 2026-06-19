@@ -13,6 +13,7 @@ describe('parseActionConfig', () => {
       commitUserName: 'dependabot-npm-force-overrides',
       commitUserEmail: 'dependabot-npm-force-overrides@users.noreply.github.com',
       signCommit: false,
+      sshSigningKey: '',
     });
   });
 
@@ -26,6 +27,7 @@ describe('parseActionConfig', () => {
         'commit-user-name': 'dependabot-overrides[bot]',
         'commit-user-email': 'dependabot-overrides[bot]@users.noreply.github.com',
         'sign-commit': 'true',
+        'ssh-signing-key': 'private-key-value',
       }),
     );
 
@@ -37,6 +39,7 @@ describe('parseActionConfig', () => {
       commitUserName: 'dependabot-overrides[bot]',
       commitUserEmail: 'dependabot-overrides[bot]@users.noreply.github.com',
       signCommit: true,
+      sshSigningKey: 'private-key-value',
     });
   });
 });

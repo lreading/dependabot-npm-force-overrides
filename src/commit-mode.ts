@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import * as posixPath from 'node:path/posix';
 import { promisify } from 'node:util';
@@ -75,6 +76,11 @@ type PullRequestEvent = {
   };
 };
 
+type PreparedSigningKey = {
+  readonly publicKeyPath: string;
+  readonly cleanupDirectory: string;
+};
+
 export async function executeCommitMode(
   options: CommitModeOptions,
 ): Promise<Result<CommitModeOutcome>> {
@@ -90,6 +96,11 @@ export async function executeCommitMode(
   const allowed = validateCommitMutationAllowed(options.config, context.value);
   if (!allowed.ok) {
     return noOp([], allowed.reason);
+  }
+
+  const signingConfig = validateCommitSigningConfig(options.config);
+  if (!signingConfig.ok) {
+    return signingConfig;
   }
 
   const clean = await requireCleanWorkingTree(runner, cwd);
@@ -199,8 +210,19 @@ export async function executeCommitMode(
     };
   }
 
-  await git(runner, cwd, createCommitArgs(options.config));
-  await pushCommit(runner, cwd, options.config, context.value, env);
+  const signingKey = await prepareCommitSigning(options.config, runner, cwd);
+  if (!signingKey.ok) {
+    return signingKey;
+  }
+
+  try {
+    await git(runner, cwd, createCommitArgs(options.config, signingKey.value?.publicKeyPath));
+    await pushCommit(runner, cwd, options.config, context.value, env);
+  } finally {
+    if (signingKey.value !== undefined) {
+      await rm(signingKey.value.cleanupDirectory, { recursive: true, force: true });
+    }
+  }
 
   return {
     ok: true,
@@ -229,7 +251,7 @@ export function createNpmLockfileEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.Process
   const env: NodeJS.ProcessEnv = {};
 
   for (const [name, value] of Object.entries(baseEnv)) {
-    if (value === undefined || isGitHubPushTokenEnv(name)) {
+    if (value === undefined || isSensitiveSubprocessEnv(name)) {
       continue;
     }
 
@@ -273,21 +295,89 @@ export function expectedPackageFiles(packageRoots: readonly string[]): readonly 
   ]);
 }
 
-function createCommitArgs(config: ActionConfig): readonly string[] {
+function validateCommitSigningConfig(config: ActionConfig): Result<undefined> {
+  if (config.signCommit && config.sshSigningKey.trim() === '') {
+    return fail(
+      'sign-commit is true, but ssh-signing-key is empty. Pass a private SSH signing key, usually from the DEPENDABOT_OVERRIDES_SSH_SIGNING_KEY Dependabot secret.',
+    );
+  }
+
+  return {
+    ok: true,
+    value: undefined,
+  };
+}
+
+async function prepareCommitSigning(
+  config: ActionConfig,
+  runner: CommandRunner,
+  cwd: string,
+): Promise<Result<PreparedSigningKey | undefined>> {
+  if (!config.signCommit) {
+    return {
+      ok: true,
+      value: undefined,
+    };
+  }
+
+  const directory = await mkdtemp(path.join(tmpdir(), 'dependabot-npm-force-overrides-signing-'));
+  const privateKeyPath = path.join(directory, 'signing_key');
+  const publicKeyPath = path.join(directory, 'signing_key.pub');
+
+  try {
+    await writeFile(privateKeyPath, ensureTrailingNewline(config.sshSigningKey), {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    await chmod(privateKeyPath, 0o600);
+
+    const publicKey = await runner.execFile('ssh-keygen', ['-y', '-f', privateKeyPath], { cwd });
+    await writeFile(publicKeyPath, ensureTrailingNewline(publicKey.stdout), {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+
+    return {
+      ok: true,
+      value: {
+        publicKeyPath,
+        cleanupDirectory: directory,
+      },
+    };
+  } catch (error: unknown) {
+    await rm(directory, { recursive: true, force: true });
+    const message = error instanceof Error ? error.message : String(error);
+    return fail(`Failed to configure SSH commit signing: ${message}`);
+  }
+}
+
+function createCommitArgs(
+  config: ActionConfig,
+  sshSigningPublicKeyPath?: string,
+): readonly string[] {
   const args = [
     '-c',
     `user.name=${config.commitUserName}`,
     '-c',
     `user.email=${config.commitUserEmail}`,
-    'commit',
   ];
 
   if (config.signCommit) {
-    args.push('-S');
+    if (sshSigningPublicKeyPath !== undefined) {
+      args.push('-c', 'gpg.format=ssh', '-c', `user.signingkey=${sshSigningPublicKeyPath}`);
+    }
+
+    args.push('commit', '-S');
+  } else {
+    args.push('commit');
   }
 
   args.push('-m', 'Apply npm overrides for Dependabot transitive updates');
   return args;
+}
+
+function ensureTrailingNewline(value: string): string {
+  return value.endsWith('\n') ? value : `${value}\n`;
 }
 
 async function readPullRequestContext(env: NodeJS.ProcessEnv): Promise<Result<PullRequestContext>> {
@@ -449,12 +539,14 @@ function splitLines(value: string): readonly string[] {
     .filter((line) => line !== '');
 }
 
-function isGitHubPushTokenEnv(name: string): boolean {
+function isSensitiveSubprocessEnv(name: string): boolean {
   return (
     name === 'GITHUB_TOKEN' ||
     name === 'GH_TOKEN' ||
     name === 'INPUT_GITHUB-TOKEN' ||
-    name === 'INPUT_GITHUB_TOKEN'
+    name === 'INPUT_GITHUB_TOKEN' ||
+    name === 'INPUT_SSH-SIGNING-KEY' ||
+    name === 'INPUT_SSH_SIGNING_KEY'
   );
 }
 

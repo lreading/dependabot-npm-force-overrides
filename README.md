@@ -58,44 +58,83 @@ repository or organization policy prevents that token from writing, run the acti
 ### Signed Commits
 
 By default, the generated override commit is unsigned. If a repository requires signed commits,
-configure Git signing before this action runs and set `sign-commit: true`. This makes the action call
-`git commit -S`, which
+pass a private SSH signing key to the action and set `sign-commit: true`. This makes the action
+configure SSH signing for the generated commit and call `git commit -S`, which
 [GitHub documents for local signed commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
-GitHub supports local commit verification with GPG, SSH, or S/MIME; for SSH signing,
-[GitHub documents](https://docs.github.com/en/authentication/managing-commit-signature-verification/telling-git-about-your-signing-key#telling-git-about-your-ssh-key)
-`gpg.format ssh` and `user.signingkey`.
+This action supports SSH signing for generated commits.
 
 For Dependabot-triggered workflows, store signing secrets as Dependabot secrets, not Actions
 secrets. GitHub documents that Dependabot-triggered workflows do not receive Actions secrets and
 must use
 [Dependabot secrets](https://docs.github.com/en/code-security/reference/supply-chain-security/troubleshoot-dependabot/dependabot-on-actions#accessing-secrets).
 
-Example SSH signing setup:
+Recommended Dependabot secret name: `DEPENDABOT_OVERRIDES_SSH_SIGNING_KEY`.
+
+1. Generate a dedicated SSH signing key.
+
+   Store it outside the repository. Use a clear comment so the key is recognizable later.
+
+   ```sh
+   ssh-keygen -t ed25519 \
+     -N '' \
+     -C 'dependabot-npm-force-overrides signing key' \
+     -f ~/.ssh/dependabot_npm_force_overrides_signing_ed25519
+   ```
+
+   The empty passphrase keeps signing non-interactive in GitHub Actions. Treat the private key as a
+   sensitive secret and rotate it if it is exposed.
+
+2. Upload the public key to the GitHub account that should verify the commits.
+
+   With the GitHub CLI:
+
+   ```sh
+   gh ssh-key add ~/.ssh/dependabot_npm_force_overrides_signing_ed25519.pub \
+     --type signing \
+     --title 'dependabot-npm-force-overrides signing key'
+   ```
+
+   Or add the public key in GitHub settings as an SSH signing key. GitHub documents this in
+   [Adding a new SSH key to your GitHub account](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account)
+   and
+   [Telling Git about your SSH signing key](https://docs.github.com/en/authentication/managing-commit-signature-verification/telling-git-about-your-signing-key#telling-git-about-your-ssh-key).
+
+3. Add the private key as a repository Dependabot secret.
+
+   You can do this in the GitHub UI from repository settings by adding a Dependabot secret named
+   `DEPENDABOT_OVERRIDES_SSH_SIGNING_KEY`. The GitHub CLI is just a convenient way to do the same
+   setup from a terminal:
+
+   ```sh
+   gh secret set DEPENDABOT_OVERRIDES_SSH_SIGNING_KEY \
+     --app dependabot \
+     --repo OWNER/REPO \
+     < ~/.ssh/dependabot_npm_force_overrides_signing_ed25519
+   ```
+
+   Replace `OWNER/REPO` with the repository that runs this action. If you use a different secret
+   name, pass that secret to `ssh-signing-key` in the workflow.
+
+4. Pass the Dependabot secret to the action and enable signing.
+
+   GitHub Actions does not expose Dependabot secrets to JavaScript actions by name, so the workflow
+   must pass the secret value into the action input.
 
 ```yaml
-- name: Configure commit signing
-  env:
-    SSH_SIGNING_KEY: ${{ secrets.DEPENDABOT_OVERRIDES_SSH_SIGNING_KEY }}
-  run: |
-    set -euo pipefail
-    install -m 700 -d ~/.ssh
-    printf '%s\n' "$SSH_SIGNING_KEY" > ~/.ssh/override_signing_key
-    chmod 600 ~/.ssh/override_signing_key
-    ssh-keygen -y -f ~/.ssh/override_signing_key > ~/.ssh/override_signing_key.pub
-    git config --global gpg.format ssh
-    git config --global user.signingkey ~/.ssh/override_signing_key.pub
-
 - uses: lreading/dependabot-npm-force-overrides@a1c38a755edfdbaf02080e62069ba188773bd5bd # v1.0.1
   with:
     github-token: ${{ github.token }}
     sign-commit: true
-    commit-user-name: dependabot-overrides[bot]
-    commit-user-email: dependabot-overrides[bot]@users.noreply.github.com
+    ssh-signing-key: ${{ secrets.DEPENDABOT_OVERRIDES_SSH_SIGNING_KEY }}
+    commit-user-name: lreading
+    commit-user-email: lreading@users.noreply.github.com
 ```
 
-Use a committer identity that matches the signing setup. For GPG signatures, GitHub checks that the
-committer email matches an email identity on the GPG key and that the email is verified on the
-[signer's account](https://docs.github.com/en/authentication/troubleshooting-commit-signature-verification/using-a-verified-email-address-in-your-gpg-key).
+Use a committer identity associated with the GitHub account that owns the uploaded SSH signing key.
+GitHub marks the generated commit as verified when the SSH signature validates against that uploaded
+public key.
+
+The action does not fail when `ssh-signing-key` is unset unless `sign-commit: true`.
 
 ## Configuration
 
@@ -107,7 +146,8 @@ committer email matches an email identity on the GPG key and that the email is v
 | `skip-label`        | no       | unset                                                     | PR label that makes the action exit without changes.                                                                  |
 | `commit-user-name`  | no       | `dependabot-npm-force-overrides`                          | Git `user.name` value for the generated override commit.                                                              |
 | `commit-user-email` | no       | `dependabot-npm-force-overrides@users.noreply.github.com` | Git `user.email` value for the generated override commit.                                                             |
-| `sign-commit`       | no       | `false`                                                   | Sign the generated override commit with `git commit -S`. The workflow must configure Git signing first.               |
+| `sign-commit`       | no       | `false`                                                   | Sign the generated override commit with `git commit -S`. Requires `ssh-signing-key`.                                  |
+| `ssh-signing-key`   | no       | unset                                                     | Private SSH key used to sign the generated override commit when `sign-commit` is `true`.                              |
 
 ## Outputs
 

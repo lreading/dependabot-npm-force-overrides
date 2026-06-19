@@ -22951,6 +22951,7 @@ function getIDToken(aud) {
 // src/commit-mode.ts
 var import_node_child_process = require("node:child_process");
 var import_promises = require("node:fs/promises");
+var import_node_os = require("node:os");
 var path7 = __toESM(require("node:path"));
 var posixPath2 = __toESM(require("node:path/posix"));
 var import_node_util = require("node:util");
@@ -23437,6 +23438,10 @@ async function executeCommitMode(options) {
   if (!allowed.ok) {
     return noOp([], allowed.reason);
   }
+  const signingConfig = validateCommitSigningConfig(options.config);
+  if (!signingConfig.ok) {
+    return signingConfig;
+  }
   const clean = await requireCleanWorkingTree(runner, cwd);
   if (!clean.ok) {
     return clean;
@@ -23532,8 +23537,18 @@ async function executeCommitMode(options) {
       }
     };
   }
-  await git(runner, cwd, createCommitArgs(options.config));
-  await pushCommit(runner, cwd, options.config, context.value, env);
+  const signingKey = await prepareCommitSigning(options.config, runner, cwd);
+  if (!signingKey.ok) {
+    return signingKey;
+  }
+  try {
+    await git(runner, cwd, createCommitArgs(options.config, signingKey.value?.publicKeyPath));
+    await pushCommit(runner, cwd, options.config, context.value, env);
+  } finally {
+    if (signingKey.value !== void 0) {
+      await (0, import_promises.rm)(signingKey.value.cleanupDirectory, { recursive: true, force: true });
+    }
+  }
   return {
     ok: true,
     value: {
@@ -23554,7 +23569,7 @@ async function runNpmPackageLockOnly(packageRootPath, runner = defaultCommandRun
 function createNpmLockfileEnv(baseEnv) {
   const env = {};
   for (const [name, value] of Object.entries(baseEnv)) {
-    if (value === void 0 || isGitHubPushTokenEnv(name)) {
+    if (value === void 0 || isSensitiveSubprocessEnv(name)) {
       continue;
     }
     env[name] = value;
@@ -23586,19 +23601,72 @@ function expectedPackageFiles(packageRoots) {
     joinRepoPath(packageRoot, "package-lock.json")
   ]);
 }
-function createCommitArgs(config) {
+function validateCommitSigningConfig(config) {
+  if (config.signCommit && config.sshSigningKey.trim() === "") {
+    return fail4(
+      "sign-commit is true, but ssh-signing-key is empty. Pass a private SSH signing key, usually from the DEPENDABOT_OVERRIDES_SSH_SIGNING_KEY Dependabot secret."
+    );
+  }
+  return {
+    ok: true,
+    value: void 0
+  };
+}
+async function prepareCommitSigning(config, runner, cwd) {
+  if (!config.signCommit) {
+    return {
+      ok: true,
+      value: void 0
+    };
+  }
+  const directory = await (0, import_promises.mkdtemp)(path7.join((0, import_node_os.tmpdir)(), "dependabot-npm-force-overrides-signing-"));
+  const privateKeyPath = path7.join(directory, "signing_key");
+  const publicKeyPath = path7.join(directory, "signing_key.pub");
+  try {
+    await (0, import_promises.writeFile)(privateKeyPath, ensureTrailingNewline(config.sshSigningKey), {
+      encoding: "utf8",
+      mode: 384
+    });
+    await (0, import_promises.chmod)(privateKeyPath, 384);
+    const publicKey = await runner.execFile("ssh-keygen", ["-y", "-f", privateKeyPath], { cwd });
+    await (0, import_promises.writeFile)(publicKeyPath, ensureTrailingNewline(publicKey.stdout), {
+      encoding: "utf8",
+      mode: 384
+    });
+    return {
+      ok: true,
+      value: {
+        publicKeyPath,
+        cleanupDirectory: directory
+      }
+    };
+  } catch (error2) {
+    await (0, import_promises.rm)(directory, { recursive: true, force: true });
+    const message = error2 instanceof Error ? error2.message : String(error2);
+    return fail4(`Failed to configure SSH commit signing: ${message}`);
+  }
+}
+function createCommitArgs(config, sshSigningPublicKeyPath) {
   const args = [
     "-c",
     `user.name=${config.commitUserName}`,
     "-c",
-    `user.email=${config.commitUserEmail}`,
-    "commit"
+    `user.email=${config.commitUserEmail}`
   ];
   if (config.signCommit) {
-    args.push("-S");
+    if (sshSigningPublicKeyPath !== void 0) {
+      args.push("-c", "gpg.format=ssh", "-c", `user.signingkey=${sshSigningPublicKeyPath}`);
+    }
+    args.push("commit", "-S");
+  } else {
+    args.push("commit");
   }
   args.push("-m", "Apply npm overrides for Dependabot transitive updates");
   return args;
+}
+function ensureTrailingNewline(value) {
+  return value.endsWith("\n") ? value : `${value}
+`;
 }
 async function readPullRequestContext(env) {
   const eventPath = env.GITHUB_EVENT_PATH;
@@ -23710,8 +23778,8 @@ function joinRepoPath(packageRoot, filename) {
 function splitLines(value) {
   return value.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
 }
-function isGitHubPushTokenEnv(name) {
-  return name === "GITHUB_TOKEN" || name === "GH_TOKEN" || name === "INPUT_GITHUB-TOKEN" || name === "INPUT_GITHUB_TOKEN";
+function isSensitiveSubprocessEnv(name) {
+  return name === "GITHUB_TOKEN" || name === "GH_TOKEN" || name === "INPUT_GITHUB-TOKEN" || name === "INPUT_GITHUB_TOKEN" || name === "INPUT_SSH-SIGNING-KEY" || name === "INPUT_SSH_SIGNING_KEY";
 }
 function isPullRequestEvent(value) {
   return typeof value === "object" && value !== null && "pull_request" in value && typeof value.pull_request === "object" && value.pull_request !== null;
@@ -23743,7 +23811,8 @@ function createDefaultConfig() {
     packageRoots: [],
     commitUserName: "dependabot-npm-force-overrides",
     commitUserEmail: "dependabot-npm-force-overrides@users.noreply.github.com",
-    signCommit: false
+    signCommit: false,
+    sshSigningKey: ""
   };
 }
 function parseActionConfig(inputs) {
@@ -23760,7 +23829,8 @@ function parseActionConfig(inputs) {
     ...skipLabel === "" ? {} : { skipLabel },
     commitUserName: commitUserName === "" ? defaults.commitUserName : commitUserName,
     commitUserEmail: commitUserEmail === "" ? defaults.commitUserEmail : commitUserEmail,
-    signCommit: readBooleanInput(inputs, "sign-commit", defaults.signCommit)
+    signCommit: readBooleanInput(inputs, "sign-commit", defaults.signCommit),
+    sshSigningKey: readOptionalInput(inputs, "ssh-signing-key")
   };
 }
 function readOptionalInput(inputs, name) {
@@ -23790,6 +23860,9 @@ async function run() {
   );
   if (config.skipLabel !== void 0) {
     info(`Skip label: ${config.skipLabel}`);
+  }
+  if (config.sshSigningKey !== "") {
+    setSecret(config.sshSigningKey);
   }
   setOutput("changed", "false");
   setOutput("committed", "false");
