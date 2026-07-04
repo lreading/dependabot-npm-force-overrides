@@ -15,23 +15,41 @@
   },
   "dependencies": {
     "@actions/core": "^3.0.1",
-    "semver": "^7.8.4"
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^25.9.3",
+    "@types/node": "^25.9.4",
     "@types/semver": "^7.7.1",
     "esbuild": "^0.28.1",
     "eslint": "^10.5.0",
     "prettier": "^3.8.4",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.61.0",
-    "vitest": "^4.1.8"
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^4.1.9"
   },
   "engines": {
     "node": ">=24"
   },
   "overrides": {
-    "undici": ">=6.27.0"
+    "undici": ">=6.27.0",
+    "@typescript-eslint/eslint-plugin": ">=8.61.1",
+    "@typescript-eslint/parser": ">=8.61.1",
+    "@typescript-eslint/project-service": ">=8.61.1",
+    "@typescript-eslint/scope-manager": ">=8.61.1",
+    "@typescript-eslint/tsconfig-utils": ">=8.61.1",
+    "@typescript-eslint/type-utils": ">=8.61.1",
+    "@typescript-eslint/types": ">=8.61.1",
+    "@typescript-eslint/typescript-estree": ">=8.61.1",
+    "@typescript-eslint/utils": ">=8.61.1",
+    "@typescript-eslint/visitor-keys": ">=8.61.1",
+    "@vitest/expect": ">=4.1.9",
+    "@vitest/mocker": ">=4.1.9",
+    "@vitest/pretty-format": ">=4.1.9",
+    "@vitest/runner": ">=4.1.9",
+    "@vitest/snapshot": ">=4.1.9",
+    "@vitest/spy": ">=4.1.9",
+    "@vitest/utils": ">=4.1.9",
+    "nanoid": ">=3.3.14"
   }
 }
