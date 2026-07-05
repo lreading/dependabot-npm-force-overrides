@@ -3,10 +3,7 @@ import * as path from 'node:path';
 import * as posixPath from 'node:path/posix';
 
 export type DependencyField =
-  | 'dependencies'
-  | 'devDependencies'
-  | 'optionalDependencies'
-  | 'peerDependencies';
+  'dependencies' | 'devDependencies' | 'optionalDependencies' | 'peerDependencies';
 
 export type PackageJson = {
   readonly dependencies?: Record<string, string>;
