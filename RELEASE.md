@@ -6,4 +6,3 @@
 3. Run the release:
    `./scripts/release.sh minor`
 4. Wait for the release workflow to finish. It creates the GitHub Release and updates the README.
-
