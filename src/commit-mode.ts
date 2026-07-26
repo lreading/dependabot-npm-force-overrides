@@ -15,6 +15,10 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+// package-lock.json files can exceed Node's 1 MiB execFile default. Keep a
+// finite limit so repository-controlled output cannot grow without bound.
+export const COMMAND_OUTPUT_MAX_BUFFER = 16 * 1024 * 1024;
+
 export type CommandResult = {
   readonly stdout: string;
   readonly stderr: string;
@@ -514,12 +518,13 @@ async function tryGit(
   }
 }
 
-const defaultCommandRunner: CommandRunner = {
+export const defaultCommandRunner: CommandRunner = {
   async execFile(command: string, args: readonly string[], options: CommandOptions) {
     const result = await execFileAsync(command, [...args], {
       cwd: options.cwd,
       env: options.env,
       shell: false,
+      maxBuffer: COMMAND_OUTPUT_MAX_BUFFER,
     });
     return {
       stdout: result.stdout,

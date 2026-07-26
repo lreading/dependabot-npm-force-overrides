@@ -5,7 +5,9 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  COMMAND_OUTPUT_MAX_BUFFER,
   createNpmLockfileEnv,
+  defaultCommandRunner,
   executeCommitMode,
   expectedPackageFiles,
   runNpmPackageLockOnly,
@@ -83,6 +85,26 @@ describe('expectedPackageFiles', () => {
 });
 
 describe('runNpmPackageLockOnly', () => {
+  it('supports command output larger than Node’s default execFile buffer', async () => {
+    const result = await defaultCommandRunner.execFile(
+      process.execPath,
+      ['-e', 'process.stdout.write("x".repeat(2 * 1024 * 1024))'],
+      { cwd: process.cwd() },
+    );
+
+    expect(result.stdout).toHaveLength(2 * 1024 * 1024);
+  });
+
+  it('rejects command output beyond the configured safety limit', async () => {
+    await expect(
+      defaultCommandRunner.execFile(
+        process.execPath,
+        ['-e', `process.stdout.write("x".repeat(${String(COMMAND_OUTPUT_MAX_BUFFER + 1)}))`],
+        { cwd: process.cwd() },
+      ),
+    ).rejects.toThrow('stdout maxBuffer length exceeded');
+  });
+
   it('passes the safe npm lockfile-only command and script suppression environment', async () => {
     const calls: { command: string; args: readonly string[]; env?: NodeJS.ProcessEnv }[] = [];
     const runner: CommandRunner = {
